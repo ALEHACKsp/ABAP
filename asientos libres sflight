@@ -1,0 +1,174 @@
+*&---------------------------------------------------------------------------*
+*& Report  ZREPFOR1002
+*&
+*& En este programa haremos que el usuario escoja un rango de compañias 
+   para una fecha determinada, luego calcularemos los asientos libres
+   de los que dispone cada compañia en un rango de 30 dias positivos y 
+   negativos respecto a la fecha introducida, forzando el uso de funciones
+   algunas estandard, otras creadas por mi. 
+*&---------------------------------------------------------------------------*
+
+REPORT ZREPFOR1002.
+
+Include ZREPFOR1002Top.
+Include ZREPFOR1002Sel.
+INCLUDE ZREPFOR1002f01.
+
+INITIALIZATION.
+
+AT SELECTION-SCREEN.
+
+
+START-OF-SELECTION.
+PERFORM get_data.
+PERFORM get_metadata.
+PERFORM test_date.
+
+END-OF-SELECTION.
+PERFORM show_data.
+
+*&---------------------------------------------------------------------*
+*&  Include           ZREPFOR1002TOP
+*&---------------------------------------------------------------------*
+TYPES: BEGIN OF gty_flightstruc,
+         carrid      TYPE s_carrname,
+         disponibles TYPE sflight-seatsmax.
+TYPES END OF gty_flightstruc.
+
+DATA: gt_intern TYPE TABLE OF gty_flightstruc WITH KEY carrid,
+      gs_intern TYPE gty_flightstruc,
+
+      gt_sflight TYPE TABLE OF sflight,
+      gs_sflight TYPE sflight,
+
+      gt_scarr   TYPE TABLE OF scarr,
+      gs_scarr   TYPE scarr,
+
+      " New Entry
+      G_INT_fieldcat TYPE slis_t_fieldcat_alv,
+      G_ST_fieldcat TYPE slis_fieldcat_alv,
+      "
+
+      g_daysbet  TYPE s_date,
+      fecha_min TYPE s_date,
+      fecha_max TYPE s_date,
+      g_carrname TYPE s_carrname.
+      
+*&---------------------------------------------------------------------*
+*&  Include           ZREPFOR1002SEL
+*&---------------------------------------------------------------------*
+
+SELECTION-SCREEN BEGIN OF BLOCK a WITH FRAME TITLE Text-001.
+  SELECT-OPTIONS p_carrid FOR gs_sflight-carrid.
+  PARAMETERS p_date TYPE P0001-BEGDA.
+SELECTION-SCREEN END OF BLOCK a.
+
+*&---------------------------------------------------------------------*
+*&  Include           ZREPFOR1002F01
+*&---------------------------------------------------------------------*
+
+FORM get_data.
+  SELECT *
+  INTO TABLE gt_sflight
+  FROM sflight
+  WHERE carrid IN p_carrid.
+ENDFORM.
+
+FORM show_data.
+  DATA: v_sum TYPE int4,
+        v_aux TYPE t5a4a-split.
+
+  LOOP AT gt_sflight INTO gs_sflight.
+
+    "Llamamos dos veces a la función con singnos diferentes para obtener un rango de fechas positivo y negativo de 30 dias respecto la fecha introducida por el usuario
+    v_aux = '+'.
+    PERFORM call_days_between USING v_aux.
+    fecha_max = g_daysbet.
+    v_aux = '-'.
+    PERFORM call_days_between USING v_aux.
+    fecha_min = g_daysbet.
+    "Filtramso por el rango recientemente obtenido
+    IF gs_sflight-fldate BETWEEN fecha_min AND fecha_max.
+      PERFORM get_carname USING gs_sflight-carrid.
+      READ TABLE gt_intern INTO gs_intern WITH KEY g_carrname.
+      IF sy-subrc IS NOT INITIAL.
+        gs_intern-carrid = g_carrname. "gs_sflight-carrid.
+        gs_intern-disponibles = ( gs_sflight-seatsmax - gs_sflight-seatsocc ).
+        APPEND gs_intern TO gt_intern.
+      ELSE.
+        gs_intern-disponibles = gs_intern-disponibles + ( gs_sflight-seatsmax - gs_sflight-seatsocc ).
+        MODIFY TABLE gt_intern FROM gs_intern .
+      ENDIF.
+    ENDIF.
+  ENDLOOP.
+  PERFORM show_alv.
+
+ENDFORM.
+
+FORM show_alv.
+
+  G_ST_fieldcat-fieldname = 'carrid'.
+  g_st_fieldcat-seltext_m = 'carrid'.
+  APPEND g_st_fieldcat TO g_int_fieldcat.
+
+  G_ST_fieldcat-fieldname = 'disponibles'.
+  g_st_fieldcat-seltext_m = 'disponibles'.
+  APPEND g_st_fieldcat TO g_int_fieldcat.
+
+  CALL FUNCTION 'REUSE_ALV_GRID_DISPLAY'
+  EXPORTING
+    it_fieldcat   = G_INT_fieldcat[]
+    I_GRID_TITLE  = 'Asientos disponibles'
+  TABLES
+    t_outtab      = gt_intern
+  EXCEPTIONS
+    program_error = 1
+    OTHERS        = 2.
+
+ENDFORM.
+
+"Importamos los datos de la tabla scarr con las descripciones de la aerolinea
+FORM get_metadata.
+  SELECT *
+  INTO TABLE gt_scarr
+  FROM scarr.
+ENDFORM.
+
+"Modificamos la variable g_carrid con la descripcion del carrid que se recibe
+FORM get_carname USING v_carrid.
+  LOOP AT gt_scarr INTO gs_scarr.
+    IF v_carrid EQ gs_scarr-carrid.
+      g_carrname = gs_scarr-carrname.
+      CONDENSE g_carrname.
+    ENDIF.
+  ENDLOOP.
+ENDFORM.
+
+"Metodo que obtiene un intervalo de fechas de 30 dias anteriores y posteriores
+FORM call_days_between USING v_aux.
+  CALL FUNCTION 'RP_CALC_DATE_IN_INTERVAL'
+    EXPORTING
+      date      = p_date
+      days      = 30
+      months    = 0
+      signum    = v_aux
+      years     = 0
+    IMPORTING
+      calc_date = g_daysbet.
+ENDFORM.
+
+FORM test_date.
+  DATA ef_great_equal TYPE recabool.
+
+  CALL FUNCTION 'ZFMFOR1202'
+    EXPORTING
+      id_year        = 2013
+      id_date        = p_date
+    IMPORTING
+      ef_great_equal = ef_great_equal
+    EXCEPTIONS
+      date_in_past   = 1.
+  IF ef_great_equal = abap_false.
+    MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno WITH sy-msgv1.
+  ENDIF.
+ENDFORM.
