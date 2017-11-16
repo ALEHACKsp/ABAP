@@ -1,0 +1,181 @@
+*&---------------------------------------------------------------------*
+*& Report  ZREPFOR1302
+*&
+*& Este ejercicio solapa dos consultas de manera que
+*& para cada row de una tabla (que funcionara como cabecera)
+*& muestra todas las rows de la otra tabla con esa clave
+*&
+*& Ejemplo: Si carlos garcia es un autor registrado en la tabla a y a escrito varios libros guardados en la tabla b
+*& con este ejercicio mostramos la linia del autor y debajo mostramos todos los libros de ese autor
+*& siendo el nombre de autor la clave de cada
+*&---------------------------------------------------------------------*
+
+REPORT ZREPFOR1302.
+
+INCLUDE ZREPFOR1302Top.
+INCLUDE ZREPFOR1302_f01.
+
+INITIALIZATION.
+  repid = sy-repid.
+AT SELECTION-SCREEN.
+
+START-OF-SELECTION.
+  PERFORM get_data.
+END-OF-SELECTION.
+  PERFORM get_print.
+  
+  *&---------------------------------------------------------------------*
+*&  Include           ZREPFOR1302TOP
+*&---------------------------------------------------------------------*
+
+TYPE-POOLS: slis.
+
+TABLES: vbrk, vbrp.
+
+DATA: gt_tabp  TYPE TABLE OF ztab1302,
+      gt_tabh  TYPE TABLE OF ztab13021,
+      gty_tabp TYPE ztab1302,
+      gty_tabh TYPE ztab13021.
+
+
+"Define una constante para referirse al recuadro de
+CONSTANTS: formname_top_of_page TYPE slis_formname VALUE 'TOP_OF_PAGE'.
+
+CONSTANTS: c_vbrk TYPE slis_tabname VALUE 'GTY_TABP'.
+CONSTANTS: c_vbrp TYPE slis_tabname VALUE 'GTY_TABH'.
+
+DATA: alv_field  TYPE slis_t_fieldcat_alv WITH HEADER LINE,
+      alv_layout TYPE slis_layout_alv,
+      repid      LIKE sy-repid.
+
+DATA: ti_evento   TYPE slis_t_event,
+      ti_cabecera TYPE slis_t_listheader.
+
+DATA: w_keyinfo TYPE slis_keyinfo_alv.
+
+DEFINE lineacab.
+  hline-typ  = &1.
+  hline-key  = &2.
+  write &3 to texto.
+  hline-info = texto.
+  append hline to ti_cabecera.
+  clear texto.
+END-OF-DEFINITION.
+
+SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME TITLE text-001.
+SELECT-OPTIONS: p_doc   FOR vbrk-vbeln OBLIGATORY,
+                p_date  FOR vbrk-fkdat,
+                p_tfact FOR vbrk-vbtyp,
+                p_mat   FOR vbrp-matnr.
+SELECTION-SCREEN END OF BLOCK b1.
+
+
+*&---------------------------------------------------------------------*
+*&  Include           ZREPFOR1302_F01
+*&---------------------------------------------------------------------*
+
+FORM get_data.
+
+  SELECT rk~vbeln rk~fkdat rk~fkart rk~waerk rk~vkorg
+  INTO CORRESPONDING FIELDS OF TABLE gt_tabp
+  FROM  vbrk AS rk
+  WHERE rk~vbeln IN p_doc
+  AND rk~fkdat IN p_date
+  AND rk~vbtyp IN p_tfact.
+
+  "SORT gt_tabp BY vbeln.
+
+  SELECT rp~vbeln rp~uepos rp~matnr rp~arktx rp~fkimg rp~vrkme rp~werks
+  INTO CORRESPONDING FIELDS OF TABLE gt_tabh
+
+  FROM  vbrp AS rp
+  FOR ALL ENTRIES IN gt_tabp
+  WHERE rp~vbeln eq gt_tabp-vbeln
+  and rp~matnr  IN p_mat.
+
+  "SORT gt_tabh BY MATNR.
+ENDFORM.
+
+FORM get_print.
+  DATA: lt_fcat TYPE slis_t_fieldcat_alv.
+
+  PERFORM eventos USING ti_evento[].
+  PERFORM hacer_cabecera.
+
+  "Llamada a la función que me hace el catalogo
+  CALL FUNCTION 'REUSE_ALV_FIELDCATALOG_MERGE'
+    EXPORTING
+      i_program_name     = sy-repid
+      i_internal_tabname = 'GT_TABP'
+      i_inclname         = 'ZTAB1302'
+    CHANGING
+      ct_fieldcat        = lt_fcat.
+
+  "Llamada a la función que me hace el catalogo
+  CALL FUNCTION 'REUSE_ALV_FIELDCATALOG_MERGE'
+    EXPORTING
+      i_program_name     = sy-repid
+      i_internal_tabname = 'GT_TABH'
+      i_inclname         = 'ZTAB13021'
+    CHANGING
+      ct_fieldcat        = lt_fcat.
+
+  "Declaracion de las llaves
+  w_keyinfo-header01 = 'VBELN'.
+  w_keyinfo-item01 = 'VBELN'.
+
+  CALL FUNCTION 'REUSE_ALV_HIERSEQ_LIST_DISPLAY'
+    EXPORTING
+      i_callback_program      = repid
+*     I_CALLBACK_USER_COMMAND = ' '
+      "is_layout               = alv_layout
+      it_fieldcat             = lt_fcat " catalogo que hemos generado auto
+      it_events               = ti_evento[] " evento que controla la cabecera
+      i_tabname_header        = c_vbrk " Constante con valor de mi estructura representa slis_tabname
+      i_tabname_item          = c_vbrp
+      i_structure_name_header = 'ZTAB1302' "estructura
+      i_structure_name_item   = 'ZTAB13021'
+      is_keyinfo              = w_keyinfo "TYPE slis_keyinfo_alv.
+    TABLES
+      t_outtab_header         = gt_tabp " tablas internas
+      t_outtab_item           = gt_tabh
+    EXCEPTIONS
+      program_error           = 1.
+  "Control de errores en caso de no encontrar data
+  IF sy-subrc <> 0.
+    MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+  ENDIF.
+ENDFORM.
+
+FORM hacer_cabecera.
+
+  DATA: hline     TYPE slis_listheader,
+        texto(60) TYPE c.
+
+  lineacab 'H' space 'Reporte de Facturas'.
+  lineacab  'S' 'Fecha:' sy-datum.
+  lineacab  'S' 'Usuario:' sy-uname.
+  lineacab  'S' space space.
+ENDFORM.
+
+FORM eventos USING p_ti_evento TYPE slis_t_event.
+  DATA: ls_event TYPE slis_alv_event.
+
+  CALL FUNCTION 'REUSE_ALV_EVENTS_GET'
+    EXPORTING
+      i_list_type = 0
+    IMPORTING
+      et_events   = p_ti_evento.
+  READ TABLE p_ti_evento WITH KEY name = slis_ev_top_of_page INTO ls_event.
+
+  IF sy-subrc = 0.
+    MOVE formname_top_of_page TO ls_event-form.
+    APPEND ls_event TO p_ti_evento.
+  ENDIF.
+ENDFORM.
+
+FORM top_of_page.
+  CALL FUNCTION 'REUSE_ALV_COMMENTARY_WRITE'
+    EXPORTING
+      it_list_commentary = ti_cabecera.
+ENDFORM.
