@@ -1,0 +1,203 @@
+*&---------------------------------------------------------------------*
+*& Modulpool  ZZDYNPROPOOLFOR02
+*&---------------------------------------------------------------------*
+
+PROGRAM ZZDYNPROPOOLFOR02.
+
+INCLUDE ZZDYNPROPOOLFOR02Top.
+INCLUDE zzdynpropoolfor02_status_90o01. "SCREENS
+
+*&---------------------------------------------------------------------*
+*&  Include           ZZDYNPROPOOLFOR02TOP
+*&---------------------------------------------------------------------*
+"TABLES: ZTTREFOR02.
+
+DATA: empleado_nuevo TYPE recabool.
+DATA: ok_code_9010 TYPE sy-ucomm,
+      ok_code_9011 TYPE sy-ucomm.
+
+TABLES: ZTTREFOR02.
+
+CLASS lcl_eventhandler DEFINITION.
+
+  PUBLIC SECTION.
+    CLASS-METHODS:
+      handle_double_click FOR EVENT
+      if_salv_events_actions_table~link_click OF cl_salv_events_table
+        IMPORTING
+            row
+            column.
+ENDCLASS.
+
+CLASS lcl_eventhandler IMPLEMENTATION.
+  METHOD handle_double_click.
+      MESSAGE i000(zre001) WITH 'Probando'.
+  ENDMETHOD.
+ENDCLASS.
+
+*&---------------------------------------------------------------------*
+*&  Screen 9010
+*&---------------------------------------------------------------------*
+PROCESS BEFORE OUTPUT.
+ MODULE STATUS_9010.
+*
+PROCESS AFTER INPUT.
+ MODULE USER_COMMAND_9010.
+ 
+*&---------------------------------------------------------------------*
+*&  Screen 9011
+*&---------------------------------------------------------------------*
+
+PROCESS BEFORE OUTPUT.
+  MODULE status_9011.
+*
+PROCESS AFTER INPUT.
+  CHAIN.
+    FIELD ZTTREFOR02-num_empleado.
+   "Comprovación de existencia de numero de empleado
+    MODULE existe_empleado.
+  ENDCHAIN.
+  MODULE user_command_9011.
+  
+  
+  *----------------------------------------------------------------------*
+***INCLUDE ZZDYNPROPOOLFOR02_STATUS_90O01.
+*----------------------------------------------------------------------*
+*&---------------------------------------------------------------------*
+*&      Module  STATUS_9010  OUTPUT y 9011
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE status_9010 OUTPUT.
+  SET PF-STATUS 'STATUS_9010'.
+  SET TITLEBAR 'TITTLE_9010'.
+ENDMODULE.
+
+MODULE user_command_9010 INPUT.
+  CASE ok_code_9010.
+    WHEN 'CANCEL'.
+      LEAVE PROGRAM.
+    WHEN 'ALTA'.
+      CALL SCREEN 9011.
+    WHEN 'BAJA'.
+      PERFORM visualiza.
+  ENDCASE.
+ENDMODULE.
+
+FORM visualiza.
+
+DATA: l_st_empleados TYPE TABLE OF zttrefor02.
+
+DATA go_table     TYPE REF TO cl_salv_table.  "instancia de la clase
+DATA go_container TYPE REF TO cl_gui_custom_container.
+
+IF ( go_table IS NOT BOUND ).
+
+  DATA columns TYPE REF TO cl_salv_columns_table.
+  DATA colum_emp_num TYPE REF TO cl_salv_column_table.
+  DATA toolbar TYPE REF TO cl_salv_functions_list.
+  DATA display_settings TYPE REF TO cl_salv_display_settings.
+  DATA u_comm TYPE REF TO cl_salv_events_table.
+
+  SELECT * INTO TABLE l_st_empleados FROM zttrefor02.
+
+  cl_salv_table=>factory(
+             EXPORTING
+                 r_container    = go_container
+                 list_display   = if_salv_c_bool_sap=>true
+               IMPORTING
+                 r_salv_table   = go_table
+               CHANGING
+                 t_table        = l_st_empleados ).
+
+  go_table->set_screen_popup( EXPORTING start_column = 10 start_line = 10 end_column = 60 end_line = 30 ).
+
+
+
+
+  "Optimizar el tamaño de las columnas.
+  columns = go_table->get_columns( ).
+  columns->set_optimize( ).
+  colum_emp_num ?= columns->get_column('NUM_EMPLEADO').
+  colum_emp_num->set_cell_type( if_salv_c_cell_type=>hotspot ).
+  u_comm = go_table->get_event( ).
+
+  SET HANDLER:
+  lcl_eventhandler=>handle_double_click FOR u_comm.
+
+  "Activar la barra de funciones (Toolbar).
+  toolbar = go_table->get_functions( ).
+  toolbar->set_all( ).
+
+  "Display settings.
+  display_settings = go_table->get_display_settings( ).
+  display_settings->set_striped_pattern( if_salv_c_bool_sap=>true ). "Zebra
+  display_settings->set_list_header( 'Lista de empleados' ).
+
+
+
+  "Visualizar ALV.
+  go_table->display( ).
+ELSE.
+*   Si ya estan instanciadas las clases, pues refrescamso los datos de la pantalla
+  go_table->refresh( ).
+ENDIF.
+
+ENDFORM.
+
+MODULE status_9011 OUTPUT.
+  SET PF-STATUS 'STATUS_9011'.
+  SET TITLEBAR 'TITTLE_9011'.
+ENDMODULE.
+
+MODULE user_command_9011 INPUT.
+  CASE ok_code_9011.
+    WHEN 'CANCEL'.
+      LEAVE PROGRAM.
+    WHEN 'BACK'.
+      CALL SCREEN 9010.
+    WHEN 'GUARDAR'.
+      IF empleado_nuevo EQ abap_true.
+        INSERT zttrefor02.
+        MESSAGE i000(zre001) WITH 'Usuario creado correctamente'.
+      ENDIF.
+  ENDCASE.
+ENDMODULE.
+
+MODULE existe_empleado INPUT.
+  DATA: l_st_empleados TYPE zttrefor02.
+
+  IF zttrefor02-num_empleado IS NOT INITIAL.
+
+    SELECT SINGLE * FROM zttrefor02
+    INTO l_st_empleados
+    WHERE num_empleado = zttrefor02-num_empleado.
+
+    IF sy-subrc = 0.
+      "Caso en el que lo encuentra, no daremos de alta el usuario
+      CLEAR empleado_nuevo.
+      MESSAGE e000(zre001) WITH 'El numero de usuario ya existe'.
+    ELSE.
+      "Si no lo encuentra lo podemos dar de alta
+      empleado_nuevo = abap_true.
+    ENDIF.
+  ENDIF.
+ENDMODULE.
+
+MODULE user_command_9012 INPUT.
+
+
+*  CALL FUNCTION 'POPUP_TO_CONFIRM'
+*    EXPORTING
+*      text_question = '¿Seguro que desea eliminar a este empleado?'
+*    IMPORTING
+*      answer        = answer.
+*
+*  IF answer EQ 1.
+*    PERFORM eliminar_empleado.
+*  ENDIF.
+ENDMODULE.
+
+TRANSACTION ZEMPLEADOFOR02
+
+
