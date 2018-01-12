@@ -1,0 +1,137 @@
+
+*&---------------------------------------------------------------------*
+*& Report  ZRE019_FIN_VIGENCIA
+*&
+*&---------------------------------------------------------------------*
+*&
+*&
+*&---------------------------------------------------------------------*
+REPORT ZRE01900000001.
+
+INCLUDE ZRE01900000001TOP.
+INCLUDE ZRE01900000001SEL.
+INCLUDE ZRE01900000001F01.
+
+INITIALIZATION.
+
+AT SELECTION-SCREEN.
+
+START-OF-SELECTION.
+  PERFORM get_data.
+  PERFORM check_data.
+  PERFORM show_data.
+END-OF-SELECTION.
+
+*&---------------------------------------------------------------------*
+*&  Include           ZRE019_FIN_VIGENCIATOP
+*&---------------------------------------------------------------------*
+
+TABLES: ztrfstatushdr, vibdro.
+
+DATA: gt_estados       TYPE TABLE OF zerestatus01,
+      gt_estados_aux   TYPE TABLE OF zerestatus01,
+      gt_estados_alv   TYPE TABLE OF zerestatus01,
+      gs_estados       TYPE zerestatus01,
+      gs_estados_alv   TYPE zerestatus01,
+      gs_estados_aux   TYPE zerestatus01,
+      gs_ztrfstatushdr TYPE ztrfstatushdr.
+  
+  
+*&---------------------------------------------------------------------*
+*&  Include           ZRE019_FIN_VIGENCIASEL
+*&---------------------------------------------------------------------*
+
+SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME TITLE Text-001.
+SELECT-OPTIONS: s_soc FOR vibdro-bukrs OBLIGATORY,    " Sociedad
+                s_ue  FOR vibdro-swenr,               " UE
+                s_oi  FOR vibdro-smenr,               " OI
+                s_est FOR ztrfstatushdr-status_group MATCHCODE OBJECT zhrfstatgroup. " Estado de grupos
+PARAMETER p_test AS CHECKBOX DEFAULT 'x'.
+
+*&---------------------------------------------------------------------*
+*&  Include           ZRE019_FIN_VIGENCIAF01
+*&---------------------------------------------------------------------*
+
+FORM get_data.
+  SELECT est~intreno vib~bukrs vib~swenr vib~smenr est~status_group est~status est~validfrom est~validto est~validfrom_time
+  INTO CORRESPONDING FIELDS OF TABLE gt_estados
+  FROM ztrfstatushdr AS est
+  INNER JOIN vibdro  AS vib
+  ON vib~intreno = est~intreno
+  WHERE vib~bukrs IN s_soc        " Sociedad
+  AND vib~swenr IN s_ue           " UE
+  AND vib~smenr IN s_oi           " OI
+  AND est~status_group IN s_est.  " Grupo de estados
+
+  SORT gt_estados BY intreno status_group validfrom validfrom_time ASCENDING.
+
+ENDFORM.
+
+FORM check_data.
+  FIELD-SYMBOLS <fls_estados> TYPE zerestatus01.
+
+  " Guardamos en una tabla auxiliar los datos antes de borrar
+  MOVE gt_estados TO gt_estados_aux.
+
+  "Borramos en la IT original todos los registros que tienen una fecha en "Valido a"
+  DELETE gt_estados WHERE validto IS NOT INITIAL AND validto <> reca0_date-max.
+
+  "Iteramos sobre todos aquellos registros que NO tienen fecha "Valido a"
+  LOOP AT gt_estados ASSIGNING <fls_estados>.
+    " Y buscamos si este registro tiene una fecha posterior con un estado diferente
+    LOOP AT gt_estados_aux INTO gs_estados_aux WHERE smenr      EQ <fls_estados>-smenr        " OI
+                                               AND status_group EQ <fls_estados>-status_group " Grupo de estado
+                                               AND validfrom     > <fls_estados>-validfrom .  " Valido de
+      IF p_test <> 'x'. "Modo test
+        "Si hemos encontrado un registro que tiene un estado diferente con una fecha posterior, pero no se a informado su fecha Valido a, tendremos que correjirlo y añadirle la fecha
+        <fls_estados>-validto = gs_estados_aux-validfrom - 1.
+      ENDIF.
+      "Todos los registros que deben ser modificados, o han sido modificados, se guardaran en esta tabla que se mostrara al ejecutar el programa
+      APPEND <fls_estados> TO gt_estados_alv.
+      EXIT.
+    ENDLOOP.
+  ENDLOOP.
+  IF p_test <> 'x'.
+    PERFORM update_table.
+  ENDIF.
+
+ENDFORM.
+
+FORM update_table.
+
+  LOOP AT gt_estados INTO gs_estados.
+    UPDATE ztrfstatushdr
+    SET validto = gs_estados-validto
+    WHERE intreno EQ gs_estados-intreno
+    AND status_group EQ gs_estados-status_group
+    AND status EQ gs_estados-status
+    AND validfrom EQ gs_estados-validfrom
+    AND validfrom_time EQ gs_estados-validfrom_time.
+  ENDLOOP.
+
+  COMMIT WORK.
+
+ENDFORM.
+
+FORM show_data.
+
+  DATA it_fieldcat TYPE lvc_t_fcat.
+
+  CALL FUNCTION 'LVC_FIELDCATALOG_MERGE'
+    EXPORTING
+      i_structure_name   = 'ZERESTATUS01'
+      i_bypassing_buffer = 'X'
+      i_internal_tabname = 'GT_ESTADOS_ALV'
+    CHANGING
+      ct_fieldcat        = it_fieldcat.
+
+  CALL FUNCTION 'REUSE_ALV_GRID_DISPLAY_LVC'
+    EXPORTING
+      i_bypassing_buffer = 'X'
+      i_structure_name   = 'ZERESTATUS01'
+      it_fieldcat_lvc    = it_fieldcat
+    TABLES
+      t_outtab           = gt_estados_alv.
+
+ENDFORM.
+SELECTION-SCREEN END OF BLOCK b1.
