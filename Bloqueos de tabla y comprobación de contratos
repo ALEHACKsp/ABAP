@@ -1,0 +1,83 @@
+METHOD get_number_rang_values.
+
+  TYPE-POOLS zrecn.
+
+  DATA: ls_contract       TYPE bapi_re_contract_int,
+        ls_contract_type  TYPE bapi_re_contract_type_int,
+        ls_contract_range TYPE zrebctcontractra,
+        lt_contract_range TYPE TABLE OF zrebctcontractra,
+        lf_nuevo          TYPE recabool.
+
+
+  IF gd_activity = reca1_activity-create.
+* Recuperaramos los detalles del contrato
+    CALL FUNCTION 'API_RE_CN_GET_DETAIL'
+      EXPORTING
+        io_object        = io_object
+      IMPORTING
+        es_contract      = ls_contract
+        es_contract_type = ls_contract_type
+      EXCEPTIONS
+        error            = 1
+        OTHERS           = 2.
+
+    IF sy-subrc NE 0.
+      RETURN.
+    ELSEIF ls_contract-recntype EQ zrecn_recntype-estudio OR ls_contract-recntype EQ zrecn_recntype-informe.
+* Bloqueo de la tabla ZREBCTCONTRACTRA
+      CALL FUNCTION 'ENQUEUE_EZREENQBCRANGE'
+        EXPORTING
+          mode_zrebctcontractra = 'E'
+          zzbukrs               = ls_contract-bukrs
+          zzrebdbeno            = ls_contract-benocn
+          zzsmvart              = ls_contract-recntype.
+
+* Conultamos la tabla zrebccl_zrebctcontractra para comprobar si ya existe un contrato del mismo tipo
+      TRY.
+          CALL METHOD zrebccl_zrebctcontractra_read=>get_details
+            EXPORTING
+              id_zzbukrs    = ls_contract-bukrs
+              id_zzrebdbeno = ls_contract-benocn
+              id_zzsmvart   = ls_contract-recntype
+            RECEIVING
+              rs_result     = ls_contract_range.
+        CATCH cx_c2s_data_not_found .
+          lf_nuevo = abap_true.
+      ENDTRY.
+
+* Si existe un contrato con las mismas caracterísitcas, aumentamos el rango y actualizamos la tabla
+      IF lf_nuevo <> abap_true.
+        ADD 1 TO ls_contract_range-zzrange.
+
+        CALL FUNCTION 'Z_REBC_ZREBCTCONTRACTRA_UPD_S'
+          EXPORTING
+            is_zrebctcontractra        = ls_contract_range
+            id_operation               = 'U'.
+
+* Si no existe creamos una nueva entrado con el valor de rango 001
+      ELSE.
+        ls_contract_range-zzrange = '001'.
+        ls_contract_range-zzbukrs = ls_contract-bukrs.
+        ls_contract_range-zzrebdbeno = ls_contract-benocn.
+        ls_contract_range-zzsmvart = ls_contract-recntype.
+
+        CALL FUNCTION 'Z_REBC_ZREBCTCONTRACTRA_UPD_S'
+          EXPORTING
+            is_zrebctcontractra = ls_contract_range
+            id_operation        = 'I'.
+
+      ENDIF.
+
+* Desbloqueo de la tabla ZREBCTCONTRACTRA
+      CALL FUNCTION 'DEQUEUE_EZREENQBCRANGE'
+        EXPORTING
+          mode_zrebctcontractra = 'E'
+          zzbukrs               = ls_contract-bukrs
+          zzrebdbeno            = ls_contract-benocn
+          zzsmvart              = ls_contract-recntype.
+
+* Concatenamos el rango calculado con el resto de datos para formar el nombre del contrato
+      CONCATENATE ls_contract-recntype+2(2) ls_contract-benocn ls_contract_range-zzrange INTO cd_recnnr. CONDENSE cd_recnnr NO-GAPS.
+    ENDIF.
+  ENDIF.
+ENDMETHOD.
