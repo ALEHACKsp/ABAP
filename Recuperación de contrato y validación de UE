@@ -4,40 +4,71 @@ METHOD check_business_entity.
           lo_ass_manager TYPE REF TO if_rebd_obj_assign_mngr,
           lt_list        TYPE re_t_obj_assign,
           ls_list        LIKE LINE OF lt_list,
-          ld_contador    TYPE i.
+          ld_contador    TYPE i,
+          ls_message     TYPE recamsg.
 
-*   Recuperamos el objeto de contrato
+* Recuperamos el objeto de contrato
     TRY.
         cn_object ?= io_object. "contrato
       CATCH cx_sy_move_cast_error.
         RETURN.
     ENDTRY.
 
-*   Recuperamos el assign manager
+* Recuperamos el assign manager
     cn_object->get_obj_assign_mngr( IMPORTING eo_obj_assign_mngr = lo_ass_manager ).
 
-*   Recuperamos la lista de objetos del assign manager
+* Recuperamos la lista de objetos del assign manager
     CALL METHOD lo_ass_manager->get_list
       EXPORTING
         if_fix_periods = abap_false
       IMPORTING
         et_list        = lt_list.
 
-    " Siempre que se cree o modifique un contrato
     IF id_activity EQ reca1_activity-create OR id_activity EQ reca1_activity-change.
-*   Recorremos la lista de objetos del assign manager
+* Recorremos la lista de objetos del assign manager
       LOOP AT lt_list INTO ls_list.
         IF ls_list-objnrtrg(2) EQ reca1_objtype-business_entity.
           ADD 1 TO ld_contador.
         ENDIF.
       ENDLOOP.
 
-*   Siempre ha de estar informada una UE en el contarto, pero no mas de una
-      IF ld_contador EQ 0.
-        MESSAGE e000 WITH 'El contrato debe disponer de una Unidad Económica'. " añadir en type pool "El contrato debe disponer de una Unidad Económica
-      ELSEIF ld_contador GT 1.
-        MESSAGE e000 WITH 'Sólo es posible asociar una Unidad Económica en el contrato'. " añadir en type pool "Sólo es posible asociar una Unidad Económica en el contrato
+* Siempre ha de estar informada una UE en el contarto, pero no mas de una
+      IF ld_contador EQ 0. " Caso UE no informada
+        CALL METHOD add_message_list
+          EXPORTING
+            io_object        = io_object
+            id_msgty         = 'E'
+            id_msgid         = 'ZRE001'
+            id_detlevel      = '1'
+            id_msgno         = '838' "El contrato debe disponer de una Unidad Económica
+            id_tabname       = 'REBD_OBJ_ASSIGN_S'
+            id_fieldname     = 'OBJASS_INDEX'
+          IMPORTING
+            es_message       = ls_message
+          EXCEPTIONS
+            disabled_message = 1
+            OTHERS           = 2.
+        IF sy-subrc EQ 0.
+          APPEND ls_message TO ct_message.
+        ENDIF.
+      ELSEIF ld_contador GT 1. " Caso mas de una UE informada
+        CALL METHOD add_message_list
+          EXPORTING
+            io_object        = io_object
+            id_msgty         = 'E'
+            id_msgid         = 'ZRE001'
+            id_detlevel      = '1'
+            id_msgno         = '839' "Sólo es posible asociar una Unidad Económica en el contrato
+            id_tabname       = 'REBD_OBJ_ASSIGN_S'
+            id_fieldname     = 'OBJASS_INDEX'
+          IMPORTING
+            es_message       = ls_message
+          EXCEPTIONS
+            disabled_message = 1
+            OTHERS           = 2.
+        IF sy-subrc EQ 0.
+          APPEND ls_message TO ct_message.
+        ENDIF.
       ENDIF.
-
     ENDIF.
   ENDMETHOD.
