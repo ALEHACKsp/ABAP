@@ -8,7 +8,6 @@ METHOD get_number_rang_values.
         lt_contract_range TYPE TABLE OF zrebctcontractra,
         lf_nuevo          TYPE recabool.
 
-
   IF gd_activity = reca1_activity-create.
 * Recuperaramos los detalles del contrato
     CALL FUNCTION 'API_RE_CN_GET_DETAIL'
@@ -32,7 +31,7 @@ METHOD get_number_rang_values.
           zzrebdbeno            = ls_contract-benocn
           zzsmvart              = ls_contract-recntype.
 
-* Conultamos la tabla zrebccl_zrebctcontractra para comprobar si ya existe un contrato del mismo tipo
+* Consultamos la tabla zrebccl_zrebctcontractra para comprobar si ya existe un contrato del mismo tipo informado
       TRY.
           CALL METHOD zrebccl_zrebctcontractra_read=>get_details
             EXPORTING
@@ -53,8 +52,7 @@ METHOD get_number_rang_values.
           EXPORTING
             is_zrebctcontractra        = ls_contract_range
             id_operation               = 'U'.
-
-* Si no existe creamos una nueva entrado con el valor de rango 001
+* Si no existe creamos una nueva entrada con el valor de rango 001
       ELSE.
         ls_contract_range-zzrange = '001'.
         ls_contract_range-zzbukrs = ls_contract-bukrs.
@@ -65,7 +63,6 @@ METHOD get_number_rang_values.
           EXPORTING
             is_zrebctcontractra = ls_contract_range
             id_operation        = 'I'.
-
       ENDIF.
 
 * Desbloqueo de la tabla ZREBCTCONTRACTRA
